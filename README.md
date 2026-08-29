@@ -57,6 +57,11 @@ The dashboard provides:
 * 🧠 LSTM-based temporal anomaly detection
 * 📊 Historical anomaly visualization
 
+Make sure uploaded CSV contains exactly these columns and 7 rows of data to successfully run the LSTM Autoencoder anomaly detection:
+
+avg_outflow | avg_inflow | total_grid | Am | TN | T | H | PP | VV | VM | year | month_sin | month_cos | temp_humidity | inflow_rolling7 | BOD_lag1 | COD_lag1
+
+
 Run locally:
 
 ```bash
