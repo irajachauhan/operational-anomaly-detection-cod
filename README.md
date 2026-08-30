@@ -1,4 +1,4 @@
-# Wastewater Quality Prediction and Anomaly Detection
+# Operational Anomaly Detection and COD Soft Sensing
 
 Machine learning pipeline for **COD prediction and operational anomaly detection** using daily wastewater treatment plant data from the Eastern Treatment Plant, Melbourne.
 
@@ -72,7 +72,7 @@ streamlit run deployment/app.py
 ## 📁 Repository Structure
 
 ```text
-wwtp-dashboard/
+operational-anomaly-detection-cod/
 ├── deployment/     # Streamlit app + trained models
 ├── notebooks/      # Complete ML workflow
 ├── data/           # Project dataset
