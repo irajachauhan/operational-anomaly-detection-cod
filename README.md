@@ -1,4 +1,4 @@
-# Wastewater Quality Prediction and Anomaly Detection
+# Operational Anomaly Detection and COD Soft Sensing
 
 Machine learning pipeline for **COD prediction and operational anomaly detection** using daily wastewater treatment plant data from the Eastern Treatment Plant, Melbourne.
 
@@ -59,7 +59,7 @@ The dashboard provides:
 
 Make sure uploaded CSV contains exactly these columns and 7 rows of data to successfully run the LSTM Autoencoder anomaly detection:
 
-avg_outflow | avg_inflow | total_grid | Am | TN | T | H | PP | VV | VM | year | month_sin | month_cos | temp_humidity | inflow_rolling7 | BOD_lag1 | COD_lag1
+avg_outflow, avg_inflow, total_grid, Am, BOD, COD, TN, T, TM, Tm, SLP, H, PP, VV, V, VM, VG, year, month, day
 
 
 Run locally:
@@ -72,7 +72,7 @@ streamlit run deployment/app.py
 ## 📁 Repository Structure
 
 ```text
-wwtp-dashboard/
+operational-anomaly-detection-cod/
 ├── deployment/     # Streamlit app + trained models
 ├── notebooks/      # Complete ML workflow
 ├── data/           # Project dataset
