@@ -160,26 +160,131 @@ with tab2:
     with col2:
         st.subheader("🧠 LSTM Autoencoder")
         st.info(
-            "Upload a CSV with **7 rows** (last 7 days) and "
-            "17 feature columns for temporal anomaly detection."
+            "Upload a CSV with **7 consecutive days** of raw plant readings. "
+            "The app will preprocess automatically."
         )
-        uploaded = st.file_uploader("Upload 7-day sequence CSV", type="csv")
-        if uploaded is not None:
-            seq_df = pd.read_csv(uploaded)
-            if seq_df.shape == (7, len(FEATURE_COLS)):
-                seq_scaled = scaler_lstm.transform(seq_df[FEATURE_COLS])
-                seq_input  = seq_scaled.reshape(1, SEQ_LEN, len(FEATURE_COLS))
-                seq_recon  = autoencoder.predict(seq_input, verbose=0)
-                recon_err  = float(np.mean((seq_input - seq_recon) ** 2))
-                st.metric("Reconstruction Error", f"{recon_err:.5f}")
-                st.metric("Threshold",            f"{threshold:.5f}")
-                if recon_err > threshold:
-                    st.error(f"🔴 TEMPORAL ANOMALY — Error {recon_err:.5f} > threshold {threshold:.5f}")
-                else:
-                    st.success("🟢 Normal temporal pattern")
-            else:
-                st.error(f"CSV must have exactly 7 rows and {len(FEATURE_COLS)} columns.")
 
+        st.markdown("**Required columns — export directly from SCADA:**")
+        st.code(
+            "avg_outflow, avg_inflow, total_grid, Am, BOD, COD, TN, "
+            "T, TM, Tm, SLP, H, PP, VV, V, VM, VG, year, month, day",
+            language="text"
+        )
+
+        uploaded = st.file_uploader("Upload 7-day raw CSV", type="csv")
+
+        if uploaded is not None:
+            try:
+                raw_df = pd.read_csv(uploaded)
+
+                # Validate all 20 original columns are present
+                required_raw = [
+                    "avg_outflow", "avg_inflow", "total_grid", "Am",
+                    "BOD", "COD", "TN", "T", "TM", "Tm", "SLP",
+                    "H", "PP", "VV", "V", "VM", "VG", "year", "month", "day"
+                ]
+
+                missing = [c for c in required_raw if c not in raw_df.columns]
+                if missing:
+                    st.error(f"Missing columns: {missing}")
+
+                elif len(raw_df) != 7:
+                    st.error(f"CSV must have exactly 7 rows. Found: {len(raw_df)}")
+
+                else:
+                    # ── Step 1: Recreate date column ──────────────────────────────
+                    raw_df["date"] = pd.to_datetime(
+                        raw_df[["year", "month", "day"]], errors="coerce"
+                    )
+                    raw_df = raw_df.sort_values("date").reset_index(drop=True)
+
+                    # ── Step 2: Drop columns removed during preprocessing ─────────
+                    # SLP  — near-zero correlation with all targets
+                    # TM   — r=0.925 with T (redundant)
+                    # Tm   — r=0.891 with T (redundant)
+                    # V    — r=0.824 with VM (redundant)
+                    # VG   — r=0.809 with VM (redundant)
+                    # day  — correlation ~0 with all features
+                    DROP_COLS = ["SLP", "TM", "Tm", "V", "VG", "day"]
+                    raw_df.drop(columns=DROP_COLS, inplace=True)
+
+                    # ── Step 3: Feature engineering ───────────────────────────────
+                    # Lag features
+                    raw_df["BOD_lag1"] = raw_df["BOD"].shift(1)
+                    raw_df["COD_lag1"] = raw_df["COD"].shift(1)
+
+                    # Fill first row lag with same-day value
+                    # (best approximation when prior-day value is unavailable)
+                    raw_df["BOD_lag1"] = raw_df["BOD_lag1"].fillna(raw_df["BOD"])
+                    raw_df["COD_lag1"] = raw_df["COD_lag1"].fillna(raw_df["COD"])
+
+                    # Cyclic month encoding
+                    raw_df["month_sin"] = np.sin(2 * np.pi * raw_df["month"] / 12)
+                    raw_df["month_cos"] = np.cos(2 * np.pi * raw_df["month"] / 12)
+
+                    # Temperature-humidity interaction
+                    raw_df["temp_humidity"] = raw_df["T"] * raw_df["H"]
+
+                    # 7-day rolling mean of inflow
+                    raw_df["inflow_rolling7"] = (
+                        raw_df["avg_inflow"]
+                        .rolling(window=7, min_periods=1)
+                        .mean()
+                    )
+
+                    # ── Step 4: Select final 17 features in correct order ─────────
+                    FEATURE_COLS = [
+                        "avg_outflow", "avg_inflow", "total_grid", "Am", "TN",
+                        "T", "H", "PP", "VV", "VM",
+                        "year", "month_sin", "month_cos",
+                        "temp_humidity", "inflow_rolling7",
+                        "BOD_lag1", "COD_lag1"
+                    ]
+
+                    seq_processed = raw_df[FEATURE_COLS].values
+
+                    # ── NaN check before scaling ──────────────────────────────────────────────────
+                    if raw_df[FEATURE_COLS].isnull().any().any():
+                        nan_cols = raw_df[FEATURE_COLS].columns[
+                            raw_df[FEATURE_COLS].isnull().any()
+                        ].tolist()
+                        st.error(f"NaN values found in columns after preprocessing: {nan_cols}. "
+                                f"Check your CSV for missing values.")
+                    else:
+                        # ── Step 5: Scale and run LSTM ────────────────────────────────
+                        seq_scaled = scaler_lstm.transform(seq_processed)
+                        seq_input  = seq_scaled.reshape(1, 7, len(FEATURE_COLS))
+
+                        seq_recon = autoencoder.predict(seq_input, verbose=0)
+                        recon_err = float(np.mean((seq_input - seq_recon) ** 2))
+
+                        # ── Step 6: Display results ───────────────────────────────────
+                        st.metric("Reconstruction Error", f"{recon_err:.5f}")
+                        st.metric("Threshold",            f"{threshold:.5f}")
+
+                        if recon_err > threshold:
+                            st.error(
+                                f"🔴 TEMPORAL ANOMALY DETECTED — "
+                                f"Reconstruction error ({recon_err:.5f}) exceeds "
+                                f"threshold ({threshold:.5f}). The past 7-day "
+                                f"operational pattern deviates from normal. "
+                                f"Recommend process review."
+                            )
+                        else:
+                            st.success(
+                                f"🟢 Normal temporal pattern — "
+                                f"error ({recon_err:.5f}) below threshold."
+                            )
+
+                        # Show processed features for operator verification
+                        with st.expander("View processed features (verification)"):
+                            st.dataframe(
+                                raw_df[["date"] + FEATURE_COLS].round(3),
+                                use_container_width=True
+                            )
+
+            except Exception as e:
+                st.error(f"Error processing uploaded file: {str(e)}")
 # ── TAB 3 ─────────────────────────────────────────────────────────────────────
 with tab3:
     st.header("📊 Historical Anomaly Overview")
